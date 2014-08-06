@@ -1,0 +1,5 @@
+#!/bin/sh
+#
+# This script is the counterpart to rc.local, executed upon reboot or shutdown
+
+exit 0

@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -o pipefail
+
+php /var/web/mediawiki/maintenance/dumpBackup.php --full --uploads \
+        --conf=/var/web/mediawiki/LocalSettings.php < /dev/null 2>/dev/null \
+  | gzip > /var/backup/mediawiki/wiki_dumpBackup_full_includeFiles.xml.gz \
+        2>/dev/null \
+ && mysqldump --defaults-file=/root/.my.cnf --opt --all-databases \
+        --add-drop-database --complete-insert --default-character-set=binary \
+        --lock-all-tables < /dev/null 2>/dev/null \
+  | gzip > /var/backup/mysql/wiki_mysqldump_allDatabases_charsetBinary.sql.gz \
+        2>/dev/null \
+ && rsync -azO --delete -HS \
+        --rsh="ssh" \
+        --log-file=/var/log/backup/backup_wiki_content.log \
+        --exclude="/images/cache/" --exclude="/images/tmp/" --exclude="/images/lockdir/" --delete-excluded \
+        /var/backup/{mediawiki,mysql} /var/web/mediawiki/images user@host:path \
+        < /dev/null > /dev/null 2>&1
+
+retval=$?
+if [[ $retval -ne 0 ]]; then
+    message="Backup of wiki content (XML and/or mysql) FAILED"
+    logger -p syslog.crit "$message"
+    echo "$message"
+fi
+
+exit $retval

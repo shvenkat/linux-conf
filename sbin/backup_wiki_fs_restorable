@@ -1,0 +1,154 @@
+#!/bin/bash
+
+set -o pipefail
+
+#
+# set parameters
+#
+declare -a SRC EXCLUDE INCLUDE
+RSYNC=/usr/local/bin/rsync
+SSH="ssh"
+#SSH="ssh -o PreferredAuthentications=password"
+DD=dd
+REMOTE_ID=user@host
+REMOTE_RSYNC=path
+SRC_DEV=/dev/disk/by-uuid/UUID
+SRC=(/)
+INCLUDE=('/var/backup/**/'
+    '/var/cache/**/'
+    '/var/db/**/'
+    '/var/lib/gdm/**/'
+    '/var/lib/mlocate/**/'
+    '/var/lib/php/session/**/'
+    '/var/log/**/'
+    '/var/spool/**/')
+EXCLUDE=(lost+found/ '/home/*' '/media/*' '/tmp/*'
+    '/usr/local/fastcgi_temp/*' '/usr/local/proxy_temp/*' '/usr/local/scgi_temp/*'
+    '/usr/local/uwsgi_temp/*' '/usr/local/client_body_temp/*'
+    '/var/backup/**'
+    '/var/cache/**'
+    '/var/db/**'
+    '/var/lib/dkms/**/build/**'
+    '/var/lib/gdm/**'
+    /var/lib/ghc/pkg-dir.cache
+    /var/lib/logrotate.status
+    '/var/lib/mlocate/**'
+    '/var/lib/php/session/**'
+    '/var/lib/varnish/*'
+    /var/lib/varnish/varnish_storage.bin
+    '/var/lib/yum/*'
+    '/var/log/**'
+    '/var/spool/**'
+    '/var/tmp/*'
+    '/var/web/mediawiki/images/cache/*'
+    '/var/web/mediawiki/images/tmp/cache_Pubmed/*'
+    '/var/web/mediawiki/images/tmp/cache_PubmedParser/*'
+    '/var/web/mediawiki/cache/*')
+DST_DIR=path
+DST_PREFIX=wikifs
+#TMP_SUFFIX=inProgress
+doDryRun="false"
+
+#
+# functions
+#
+usage () {
+        echo "Usage: `basename $0`"
+        echo "    Backs up the system using time-stamped snapshots. Unchanged files"
+        echo "    are hardlinked from the previous snapshot, minimizing redundancy."
+        echo "Options:"
+        echo "    --dry-run        show what would be backed up"
+        exit 1
+}
+
+error () {
+        logger -p syslog.crit "$1"
+        echo "$(basename $0): $1" 1>&2
+        exit 1
+}
+
+#
+# parse options
+#
+while [ $# -gt 0 ]; do
+        case "$1" in
+        --help)
+                usage
+                ;;
+        --dry-run)
+                shift
+                doDryRun="true"
+                ;;
+        *)
+                error "unknown option $1"
+                ;;
+        esac
+done
+
+#
+# must be run as root user
+#
+if [[ $(id -nu) != "root" ]]; then
+        error "must be run as root user"
+fi
+
+this_time=$(date '+%F-%H%M')
+dst="${DST_DIR}/${DST_PREFIX}/"
+log="${DST_DIR}/${DST_PREFIX}.${this_time}.log"
+vbr="${DST_DIR}/${DST_PREFIX}.vbr"
+
+#
+# gather rsync options
+#
+declare -a rsyncOpts
+push_rsyncOpts () {
+    rsyncOpts=("${rsyncOpts[@]}" "$1")
+}
+declare -a rsyncRemoteOpts
+push_rsyncRemoteOpts () {
+    rsyncRemoteOpts=("${rsyncRemoteOpts[@]}" "$1")
+}
+
+if [[ $doDryRun == "true" ]]; then
+        push_rsyncOpts '--dry-run'
+fi
+push_rsyncOpts '--archive'
+push_rsyncOpts '--omit-dir-times'
+push_rsyncOpts '--compress'
+push_rsyncOpts '--delete'
+push_rsyncOpts '--hard-links'
+push_rsyncOpts '--one-file-system'
+push_rsyncOpts '--sparse'
+push_rsyncOpts '--xattrs'
+push_rsyncOpts '--acls'
+push_rsyncRemoteOpts '--fake-super'
+push_rsyncOpts '--numeric-ids'
+for include in "${INCLUDE[@]}"; do
+        push_rsyncOpts "--include=${include}"
+done
+for exclude in "${EXCLUDE[@]}"; do
+        push_rsyncOpts "--exclude=${exclude}"
+done
+push_rsyncOpts '--delete-excluded'
+push_rsyncRemoteOpts "--log-file=${log}"
+#push_rsyncOpts "--link-dest=${prev_dir}/"
+push_rsyncOpts "--rsh=$SSH"
+push_rsyncOpts '--protect-args'
+
+#
+# perform backup
+#
+echo "Backing up system files ..."
+"$RSYNC" "${rsyncOpts[@]}" "--rsync-path=$REMOTE_RSYNC ${rsyncRemoteOpts[*]}" \
+  "${SRC[@]}" "${REMOTE_ID}:${dst}" < /dev/null > /dev/null 2>&1
+retval=$?
+if [[ $retval -ne 0 ]]; then
+    error "$RSYNC exited with status $retval"
+fi
+
+echo "Backing up volume boot record ..."
+$DD if="$SRC_DEV" bs=512 count=1 2>/dev/null | $SSH "$REMOTE_ID" "cat > $vbr"
+retval=$?
+if [[ $retval -ne 0 ]]; then
+    error "Error backing up volume boot record: exit status $retval"
+fi

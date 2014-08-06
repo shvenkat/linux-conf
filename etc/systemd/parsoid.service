@@ -1,0 +1,25 @@
+[Unit]
+Description=Mediawiki Parsoid web service on node.js
+Documentation=http://www.mediawiki.org/wiki/Parsoid
+;Requires=local-fs.target network.target
+Wants=local-fs.target network.target
+After=local-fs.target network.target
+;After=nss-lookup.target
+ConditionPathExists=/var/web/mediawiki/extensions/Parsoid/js/api/server.js
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=simple
+User=nobody
+Group=nobody
+WorkingDirectory=/var/web/mediawiki/extensions/Parsoid/js
+EnvironmentFile=/etc/parsoid/parsoid.env
+ExecStart=/usr/bin/node /var/web/mediawiki/extensions/Parsoid/js/api/server.js
+KillMode=process
+Restart=on-success
+;TimeoutStartSec=0
+;TimeoutStopSec=2
+PrivateTmp=true
+StandardOutput=syslog

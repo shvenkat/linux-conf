@@ -1,0 +1,15 @@
+#!/bin/bash
+
+set -o pipefail
+
+runuser sphinx -c '/usr/bin/indexer --quiet --config /etc/sphinx/sphinx.conf \
+        wiki_incremental --rotate' < /dev/null > /dev/null 2>&1
+
+retval=$?
+if [[ $retval -ne 0 ]]; then
+    message="Rebuilding incremental sphinx index FAILED"
+    logger -p syslog.crit "$message"
+    echo "$message"
+fi
+
+exit $retval

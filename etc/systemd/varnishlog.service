@@ -1,0 +1,19 @@
+[Unit]
+Description=Varnish HTTP accelerator logging daemon
+#Wants=varnish.service
+After=network.target varnish.service
+
+[Service]
+EnvironmentFile=/etc/varnish/varnish.params
+
+Type=forking
+PIDFile=/run/varnishlog.pid
+PrivateTmp=true
+ExecStart=/usr/bin/varnishlog \
+	-D -P /run/varnishlog.pid \
+	-n $VARNISH_INSTANCE \
+	-a -w /var/log/varnish/varnish.log \
+	-i ReqStart -i RxURL -i ReqEnd
+
+[Install]
+WantedBy=multi-user.target

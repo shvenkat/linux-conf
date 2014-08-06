@@ -1,0 +1,21 @@
+#!/bin/bash
+
+set -o pipefail
+
+runuser sphinx -c '/usr/bin/indexer --quiet --config /etc/sphinx/sphinx.conf \
+        wiki_main --rotate'  < /dev/null > /dev/null 2>&1 \
+ && runuser sphinx -c '/usr/bin/indexer --quiet --config /etc/sphinx/sphinx.conf \
+        wiki_incremental --rotate' < /dev/null > /dev/null 2>&1 \
+ && cd /var/web/mediawiki/extensions/SphinxSearch \
+ && php SphinxSearch_setup.php --indexer /usr/bin/indexer \
+        --sphinxconf /etc/sphinx/sphinx.conf --useindex wiki_main --quiet \
+        < /dev/null > /dev/null 2>&1 
+
+retval=$?
+if [[ $retval -ne 0 ]]; then
+    message="Rebuilding main sphinx index and/or dictionary FAILED"
+    logger -p syslog.crit "$message"
+    echo "$message"
+fi
+
+exit $retval

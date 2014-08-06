@@ -1,0 +1,18 @@
+#!/bin/bash
+
+MAILTO=user@host
+LOG_DIR=/var/log/varnish
+OUT_PREFIX=wiki_usage_log
+
+tmp_dir=$(mktemp -d)
+log_file=$(ls -1 $LOG_DIR/varnish.log-* | sort | tail -n1)
+out_suffix=$(echo $log_file | sed -e 's#^.\+/varnish.log-\(.\+\)$#\1#')
+filtered_log=${tmp_dir}/${OUT_PREFIX}-${out_suffix}.txt.gz
+
+varnishlog -r $log_file -m 'RxURL:^/wiki/[^/?]+$' \
+  | gzip > $filtered_log
+
+echo "See attached" \
+  | mail -s "Wiki usage log" -a $filtered_log $MAILTO
+
+rm -rf $tmp_dir

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+tag="$(basename $0)[$$]"
+message=$(ntpdate -q pool.ntp.org \
+  | grep -v stratum \
+  | sed -E 's/^(.*)ntpdate.*(offset.*)$/\1\2/')
+logger -p syslog.info -t "$tag" "$message"
