@@ -1,0 +1,99 @@
+#! /usr/bin/env python
+'''
+Parse a filtered log from varnish, the http accelerator, and output site usage
+data for further analysis.
+
+Input (see below on how to obtain the input)
+----
+   13 ReqStart     c 10.116.165.186 58614 1523510441
+   13 RxURL        c /wiki/GAU_Wiki
+   13 ReqEnd       c 1523510441 1343933263.104341507 1343933263.133124590 0.000372887 0.028640270 0.000142813
+   <optional blank line>
+   13 ReqStart     c 10.116.165.186 58622 1523510442
+   13 RxURL        c /wiki/Wiki_FAQ
+   13 ReqEnd       c 1523510442 1343933368.056382418 1343933368.080635786 0.000365973 0.024037838 0.000215530
+   ...
+
+Output (3-column tab delimited: Article, IP address, time (seconds since epoch))
+----
+GAU_Wiki    10.116.165.186    1343933263
+Wiki_FAQ    10.116.165.186    1343933368
+...
+
+Notes
+----
++ Use the following commands on the varnish server to generate the input:
+    varnishlog -a -w /var/log/varnish/varnish.log -i ReqStart -i RxURL -i ReqEnd
+    varnishlog -r /var/log/varnish/varnish.log -m 'RxURL:^/wiki/[^/?]+$'
+  Omit the first command if varnishlog is already running as a system
+  service/daemon with the appropriate parameters.
+
+Created on Mar 4, 2013
+@author: shvenkat
+'''
+
+import sys
+import re
+
+##
+# Global constants
+#
+Line0Pattern = re.compile(r"^$")   # Optional record separator
+Line1Pattern = re.compile(r"\sReqStart\s+c\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s")   # This line has the IP address
+Line2Pattern = re.compile(r"\sRxURL\s+c\s+/wiki/(.+)$")   # This line has the URL
+Line3Pattern = re.compile(r"\sReqEnd\s+c\s+\d+\s(\d+\.\d+)\s")    # This line has the timestamp
+
+##
+# Functions
+#
+
+def exitStatusMsg(exitStatus, exitMsg):
+    sys.stderr.write(exitMsg)
+    sys.exit(exitStatus)
+
+infile = sys.stdin
+outfile = sys.stdout
+outfile.write("Wiki Article\tIP\tTime (seconds since epoch)\n")
+
+state = 3    # state machine with 1,2,3 = last line matched pattern 1,2,3 above
+line = ""
+lineNum = 0
+match = None
+title = ""
+ip = ""
+timestamp = ""
+for line in infile:
+    lineNum += 1
+    if state == 3:      # Previous line was ReqEnd, expect ReqStart line
+        match = Line0Pattern.search(line)  # Ignore blank lines between records
+        if match is not None:
+            continue
+        match = Line1Pattern.search(line)
+        if match is None:
+            exitStatusMsg(2, "Format error at line " + str(lineNum) + "\n")
+        else:
+            ip = match.group(1)
+            state = 1
+    elif state == 1:    # Previous line was ReqStart, expecting RxURL line
+        match = Line2Pattern.search(line)
+        if match is None:
+            exitStatusMsg(2, "Format error at line " + str(lineNum) + "\n")
+        else:
+            title = match.group(1)
+            state = 2
+    elif state == 2:    # Previous line was RxURL, expecting ReqEnd line
+        match = Line3Pattern.search(line)
+        if match is None:
+            exitStatusMsg(2, "Format error at line " + str(lineNum) + "\n")
+        else:
+            timestamp = match.group(1)
+            state = 3
+            outfile.write(title + "\t" + ip + "\t" + timestamp + "\n")
+            title = ""
+            ip = ""
+            timestamp = ""
+    else:    # state should never have values other than 1, 2 or 3
+        exitStatusMsg(1, "Internal logic error (state = " + str(state) + ")\n")
+
+if state != 3:
+    exitStatusMsg(2, "Incomplete record at EOF\n")
